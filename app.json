@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "UBBgram",
+    "slug": "ubb-gram",
+    "version": "2.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1c5682"
+      },
+      "package": "com.fariseo.ubbgram"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c9d6c83a-01f3-4f2b-abe4-e54f91313769"
+      }
+    }
+  }
+}

@@ -1,0 +1,609 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ActivityIndicator, TextInput, Button, Image, Alert } from 'react-native';
+import { getFirestore, collection, query, orderBy, limit, startAfter, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { Ionicons } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
+import { FontAwesome5 } from '@expo/vector-icons';
+import FilterModal from './componentes/ModalFiltro';
+
+const PAGE_SIZE = 10;
+
+const AvisosScreen = () => {
+  const [avisos, setAvisos] = useState([]);
+  const [lastVisible, setLastVisible] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedAviso, setSelectedAviso] = useState(null);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportDetails, setReportDetails] = useState("");
+  const [showReportError, setShowReportError] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [dropdownMenuVisible, setDropdownMenuVisible] = useState({}); // Usar un objeto para manejar visibilidad por ID
+
+//mis filtros
+const [filteredAvisos, setFilteredAvisos] = useState([]);
+const [searchTerm, setSearchTerm] = useState('');
+const [showFilters, setShowFilters] = useState(false); // Estado para mostrar el modal de filtros
+const [filter, setFilter] = useState({category: 'Todas las categorias', date: 'anytime' }); // Estado de los filtros
+
+  const reportReasons = [
+    "Contenido inapropiado",
+    "Spam",
+    "Fraude",
+    "Incitación al odio",
+    "Información falsa",
+    "Contenido sexual",
+    "Acoso",
+    "Otro"
+  ];
+
+  // Define las categorías aquí
+  const categories = [
+    { label: 'Tareas', value: 'Tareas' },
+    { label: 'Apuntes', value: 'Apuntes' },
+    { label: 'Eventos', value: 'Eventos' },
+    { label: 'Servicios', value: 'Servicios' },
+    { label: 'Anuncios', value: 'Anuncios' },
+    { label: 'Cosas Perdidas', value: 'Cosas Perdidas' },
+    { label: 'Deportes', value: 'Deportes' },
+    { label: 'Otros', value: 'Otros' },
+  ];
+
+  useEffect(() => {
+    fetchAvisos();
+  }, []);
+
+  useEffect(() => {
+    filterAvisos();
+  }, [searchTerm, avisos, filter]);
+
+
+  const fetchAvisos = async () => {
+    try {
+      const db = getFirestore();
+      const avisosCollection = collection(db, 'avisos');
+      const avisosQuery = query(avisosCollection, orderBy('fecha', 'desc'), limit(PAGE_SIZE));
+      const avisosSnapshot = await getDocs(avisosQuery);
+
+      const avisosList = avisosSnapshot.docs.map(docSnapshot => ({
+        id: docSnapshot.id,
+        ...docSnapshot.data()
+      }));
+
+      setAvisos(avisosList);
+      setFilteredAvisos(avisosList);
+      setLastVisible(avisosSnapshot.docs[avisosSnapshot.docs.length - 1]);
+    } catch (error) {
+      console.error("Error al obtener avisos:", error);
+      setError("Hubo un error al cargar los avisos. Por favor, intenta de nuevo más tarde.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMoreAvisos = async () => {
+    if (!lastVisible || loadingMore) return;
+
+    setLoadingMore(true);
+    try {
+      const db = getFirestore();
+      const avisosCollection = collection(db, 'avisos');
+      const avisosQuery = query(
+        avisosCollection,
+        orderBy('fecha', 'desc'),
+        startAfter(lastVisible),
+        limit(PAGE_SIZE)
+      );
+      const avisosSnapshot = await getDocs(avisosQuery);
+
+      const avisosList = avisosSnapshot.docs.map(docSnapshot => ({
+        id: docSnapshot.id,
+        ...docSnapshot.data()
+      }));
+
+      setAvisos(prevAvisos => [...prevAvisos, ...avisosList]);
+      setLastVisible(avisosSnapshot.docs[avisosSnapshot.docs.length - 1]);
+    } catch (error) {
+      console.error("Error al obtener más avisos:", error);
+      setError("Hubo un error al cargar más avisos. Por favor, intenta de nuevo más tarde.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const filterAvisos = () => {
+    let filtered = avisos;
+
+    // Filtrar por término de búsqueda
+    if (searchTerm !== '') {
+      const termLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(aviso => {
+        const titulo = aviso.titulo?.toLowerCase() || '';
+        const contenido = aviso.contenido?.toLowerCase() || '';
+        return titulo.includes(termLower) || contenido.includes(termLower);
+      });
+    }
+
+    if (filter.category && filter.category !== 'Todas las categorias') {
+      filtered = filtered.filter(post => post.categoria === filter.category);
+    }
+
+    if (filter.date !== 'anytime') {
+      const now = new Date();
+      let dateLimit;
+
+      switch (filter.date) {
+        case 'today':
+          dateLimit = new Date(now.setDate(now.getDate() - 1));
+          break;
+        case 'thisWeek':
+          dateLimit = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'thisMonth':
+          dateLimit = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case 'thisYear':
+          dateLimit = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+        default:
+          dateLimit = new Date(0);
+      }
+      filtered = filtered.filter(post => new Date(post.fecha) >= dateLimit);
+    }
+
+    setFilteredAvisos(filtered);
+  };
+
+  const resetFilters = () => {
+    setFilter({ category: 'Todas las categorias', date: 'anytime' });
+    setShowFilters(false);
+  };
+
+  const handleFilterSelect = (type, value) => {
+    setFilter({ ...filter, [type]: value });
+  };
+
+  const applyFilters = () => {
+    filterAvisos();
+    setShowFilters(false);
+  };
+
+
+  const handlePress = (item) => {
+    setSelectedAviso(item);
+    setModalVisible(true);
+  };
+
+  const handleReportPress = (item) => {
+    setSelectedAviso(item);
+    setReportReason("");
+    setReportDetails("");
+    setShowReportError(false);
+    setReportModalVisible(true);
+  };
+
+  const handleReportSubmit = () => {
+    if (!reportReason) {
+      setShowReportError(true);
+      return;
+    }
+
+    Toast.show({
+      type: 'success',
+      text1: 'Reporte enviado',
+      text2: 'Tu reporte ha sido enviado con éxito.'
+    });
+
+    setReportModalVisible(false);
+  };
+
+  const handleDelete = async (item) => {
+    try {
+      const db = getFirestore();
+      await deleteDoc(doc(db, 'avisos', item.id));
+
+      setAvisos(prevAvisos => prevAvisos.filter(aviso => aviso.id !== item.id));
+      Toast.show({
+        type: 'success',
+        text1: 'Aviso eliminado',
+        text2: 'El aviso ha sido eliminado con éxito.'
+      });
+    } catch (error) {
+      console.error("Error al eliminar el aviso:", error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Hubo un error al eliminar el aviso. Por favor, intenta de nuevo más tarde.'
+      });
+    }
+  };
+
+  const handleEdit = (item) => {
+    setSelectedAviso(item);
+    setEditTitle(item.titulo);
+    setEditContent(item.contenido);
+    setEditCategory(item.categoria); // Corregido para que coincida con el campo en la base de datos
+    setEditModalVisible(true);
+  };
+
+  const handleEditSubmit = async () => {
+    try {
+      const db = getFirestore();
+      await updateDoc(doc(db, 'avisos', selectedAviso.id), {
+        titulo: editTitle,
+        contenido: editContent,
+        categoria: editCategory // Corregido para que coincida con el campo en la base de datos
+      });
+
+      setAvisos(prevAvisos => prevAvisos.map(aviso => aviso.id === selectedAviso.id ? { ...aviso, titulo: editTitle, contenido: editContent, categoria: editCategory } : aviso));
+      setEditModalVisible(false);
+      Toast.show({
+        type: 'success',
+        text1: 'Aviso actualizado',
+        text2: 'El aviso ha sido actualizado con éxito.'
+      });
+    } catch (error) {
+      console.error("Error al actualizar el aviso:", error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Hubo un error al actualizar el aviso. Por favor, intenta de nuevo más tarde.'
+      });
+    }
+  };
+
+  const renderItem = ({ item }) => (
+    <View style={styles.itemContainer}>
+      <TouchableOpacity onPress={() => handlePress(item)} style={styles.item}>
+        <Text style={styles.title}>{item.titulo}</Text>
+        <Text style={styles.username}>{item.username}</Text>
+        <Text style={styles.category}>{item.categoria}</Text>
+      </TouchableOpacity>
+      <View style={styles.optionsContainer}>
+        <TouchableOpacity onPress={() => handleReportPress(item)} style={styles.iconButton}>
+          <Ionicons name="flag-outline" size={24} color="red" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setDropdownMenuVisible(prev => ({ ...prev, [item.id]: !prev[item.id] }))} style={styles.iconButton}>
+          <Ionicons name="ellipsis-vertical" size={24} color="black" />
+        </TouchableOpacity>
+        {dropdownMenuVisible[item.id] && (
+          <View style={styles.dropdownMenu}>
+            <TouchableOpacity onPress={() => handleEdit(item)} style={styles.dropdownItem}>
+              <Ionicons name="pencil" size={20} color="black" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleDelete(item)} style={styles.dropdownItem}>
+              <Ionicons name="trash" size={20} color="black" />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.searchContainer}>
+        <FontAwesome5 name="search" size={18} color="black" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder=" Buscar..."
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+        />
+        <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilters(true)}>
+          <FontAwesome5 name="filter" size={18} color="black" />
+        </TouchableOpacity>
+      </View>
+      <FilterModal
+        visible={showFilters}
+        onClose={() => setShowFilters(false)}
+        filter={filter}
+        handleFilterSelect={handleFilterSelect}
+        resetFilters={resetFilters}
+        applyFilters={applyFilters}
+        categories={categories}
+      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#143d5c" />
+        </View>
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : (
+        <FlatList
+        data={filteredAvisos}
+          renderItem={renderItem}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.flatlistContent}
+          onEndReached={fetchMoreAvisos}
+          onEndReachedThreshold={0.1}
+        />
+      )}
+      <Modal visible={modalVisible} transparent={true} animationType="slide">
+
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{selectedAviso?.titulo}</Text>
+            <Text style={styles.modalText}>{selectedAviso?.contenido}</Text>
+            {selectedAviso?.imagen && <Image source={{ uri: selectedAviso.imagen }} style={styles.modalImage} />}
+            <Text style={styles.modalCategory}>{selectedAviso?.categoria}</Text>
+            <Button title="Cerrar" onPress={() => setModalVisible(false)} />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={reportModalVisible} transparent={true} animationType="slide">
+        
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Reportar Aviso</Text>
+            <View style={styles.reasonsContainer}>
+            {reportReasons.map(reason => (
+              <TouchableOpacity 
+              key={reason} 
+              style={[
+                styles.reportOption,
+                reportReason === reason ? styles.selectedReportOption : null
+              ]}
+              onPress={() => setReportReason(reason)} 
+              >
+                <Text style={[
+                  styles.reportOptionText, 
+                  reportReason === reason ? styles.selectedReportOptionText : null]}>{reason}</Text>
+                </TouchableOpacity>
+            ))}
+            </View>
+            <TextInput
+              placeholder="Detalles adicionales (opcional)"
+              value={reportDetails}
+              onChangeText={setReportDetails}
+              style={styles.textInput}
+            />
+            {showReportError && <Text style={styles.errorText}>Selecciona un motivo antes de enviar el reporte.</Text>}
+            <View style={styles.modalButtons}>
+            <Button title="Cancelar" color="#ef8016" onPress={() => setReportModalVisible(false)} />
+            <Button title="Reportar" color="#143d5c" onPress={handleReportSubmit} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={editModalVisible} transparent={true} animationType="slide">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Editar Aviso</Text>
+            <TextInput
+              placeholder="Título"
+              value={editTitle}
+              onChangeText={setEditTitle}
+              style={styles.textInput}
+            />
+            <TextInput
+              placeholder="Contenido"
+              value={editContent}
+              onChangeText={setEditContent}
+              style={styles.textInput}
+            />
+            <TextInput
+              placeholder="Categoría"
+              value={editCategory}
+              onChangeText={setEditCategory}
+              style={styles.textInput}
+            />
+            <Button title="Guardar Cambios" onPress={handleEditSubmit} />
+            <Button title="Cancelar" onPress={() => setEditModalVisible(false)} />
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#eee',
+    borderRadius: 5,
+    margin: 10,
+    padding: 10,
+    alignItems: 'center',
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
+    bottom: 30,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  filterButton: {
+    marginLeft: 10,
+  },
+  reasonsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  reportOption: {
+    margin: 5,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    backgroundColor: '#f0f0f0',
+  },
+  reportOptionText: {
+    fontSize: 18,
+  },
+  selectedReportOption: {
+    fontWeight: 'bold',
+    color: '#143d5c',
+    backgroundColor: '#ef8016',
+  },
+  selectedReportOptionText: {
+    color: '#ffff',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    padding: 10,
+    borderRadius: 20,
+    justifyContent: 'space-around',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  text: {
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  flatlistContent: {
+    paddingHorizontal: 16,
+  },
+  itemContainer: {
+    marginBottom: 16,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    flexDirection: 'row', // Asegura que los elementos se alineen en una fila
+    justifyContent: 'space-between', // Distribuye el espacio entre los elementos
+    alignItems: 'center',
+  },
+  item: {
+    flex: 1, // Permite que el contenido del item ocupe el espacio disponible
+    marginRight: 16, // Espacio entre el contenido del item y los íconos
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  username: {
+    fontSize: 14,
+    color: '#888',
+  },
+  category: {
+    fontSize: 14,
+    color: '#00BFFF',  // Color celeste
+    fontStyle: 'italic',
+    marginTop: 10,  // Espacio adicional
+  },
+  optionsContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginRight: 0,
+  },
+  iconButton: {
+    padding: 8,
+  },
+   dropdownMenu: {
+    position: 'absolute',
+    right: 0,
+    top: 40,
+    paddingVertical: 4,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    flexDirection: 'row', // Cambia la dirección del flex a fila
+    padding: 8, // Opcional: agrega un poco de espacio interno
+  },
+  dropdownItem: {
+    paddingVertical: 5,
+    paddingHorizontal: 5,
+    padding: 8,
+    alignItems: 'center',
+    zIndex: 200,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  modalText: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  modalImage: {
+    width: '100%',
+    height: 200,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  modalCategory: {
+    fontSize: 16,
+    color: '#00BFFF',  // Color celeste
+    fontStyle: 'italic',
+    marginTop: 10,  // Espacio adicional
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  radioButton: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  radioButtonLabel: {
+    marginLeft: 8,
+    fontSize: 16,
+  },
+});
+
+export default AvisosScreen;
